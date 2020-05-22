@@ -670,6 +670,16 @@ void Renderer::renderFile(const std::string &outputDirPath,
 	// Start by clearing up the blur and particles buffers.
 	resize(int(_camera._screenSize[0]), int(_camera._screenSize[1]));
 
+	FILE *ffmpeg = NULL;
+	int width = _finalFramebuffer->_width;
+	int height = _finalFramebuffer->_height;
+	char *buf;
+	size_t sz;
+	sz = snprintf(NULL, 0, "ffmpeg -y -f rawvideo -s %dx%d -pix_fmt rgb24 -r %d -i - -an -vf vflip -vcodec hevc_nvenc -preset slow -qp 15 %s/output.mp4", width, height, (int)frameRate, outputDirPath.c_str());
+	buf = (char *)malloc(sz + 1); /* make sure you check for != NULL in real code */
+	snprintf(buf, sz + 1, "ffmpeg -y -f rawvideo -s %dx%d -pix_fmt rgb24 -r %d -i - -an -vf vflip -vcodec hevc_nvenc -preset slow -qp 15 %s/output.mp4", width, height, (int)frameRate, outputDirPath.c_str());
+	ffmpeg = popen(buf, "w");
+
 	std::cout << "[EXPORT]: Will export " << framesCount << " frames to \"" << outputDirPath << "\"." << std::endl;
 	for (size_t fid = 0; fid < framesCount; ++fid) {
 		std::cout << "\r[EXPORT]: Processing frame " << (fid + 1) << "/" << framesCount << "." << std::flush;
@@ -682,32 +692,15 @@ void Renderer::renderFile(const std::string &outputDirPath,
 		glReadPixels(0, 0, (GLsizei)_finalFramebuffer->_width, (GLsizei)_finalFramebuffer->_height, GL_RGB, GL_UNSIGNED_BYTE, &data[0]);
 		_finalFramebuffer->unbind();
 		// Write to disk.
-		std::string intString = std::to_string(fid);
-		while (intString.size() < targetSize) {
-			intString = "0" + intString;
-		}
-		const std::string outputFilePath = outputDirPath + "/output_" + intString + ".png";
 
-		int width = _finalFramebuffer->_width;
-		int height = _finalFramebuffer->_height;
-		char rgb[3];
-
-		for (int y = 0; y < height / 2; ++y) {
-			for (int x = 0; x < width; ++x) {
-				int top = (x + y * width) * 3;
-				int bottom = (x + (height - y - 1) * width) * 3;
-
-				memcpy(rgb, data + top, sizeof(rgb));
-				memcpy(data + top, data + bottom, sizeof(rgb));
-				memcpy(data + bottom, rgb, sizeof(rgb));
-			}
-		}
-		unsigned error = lodepng_encode_file( outputFilePath.c_str(), data, _finalFramebuffer->_width, _finalFramebuffer->_height, LCT_RGB, 8);
-		if (error) {
-			printf("error %u: %s\n", error, lodepng_error_text(error));
+		if (ffmpeg){
+			fwrite(data, width * height * 3, 1, ffmpeg);
 		}
 
 		_timer += (1.0f / frameRate);
+	}
+	if (ffmpeg) {
+		pclose(ffmpeg);
 	}
 	std::cout << std::endl;
 	std::cout << "[EXPORT]: Done." << std::endl;
